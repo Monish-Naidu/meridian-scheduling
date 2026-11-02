@@ -1,3 +1,5 @@
+import "./instrument";
+import * as Sentry from "@sentry/node";
 import { createApp } from "./app";
 import { DEFAULT_DB_PATH, openDb } from "./db/index";
 import { logger } from "./logger";
@@ -14,6 +16,10 @@ function shutdown(signal: string) {
   logger.info("shutting down", { signal });
   server.close(() => {
     db.close();
+    if (Sentry.isInitialized()) {
+      void Sentry.close(2_000).catch(() => undefined).finally(() => process.exit(0));
+      return;
+    }
     process.exit(0);
   });
 }

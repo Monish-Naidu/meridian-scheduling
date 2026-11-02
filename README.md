@@ -34,6 +34,15 @@ On first start the database is created at `data/meridian.db` and seeded with 3 c
 Environment variables: `PORT` (default `3000`), `DB_PATH` (default `data/meridian.db`),
 `LOG_LEVEL` (`debug`, `info`, `warn`, `error`, `silent`; default `info`).
 
+## Sentry
+
+Set `SENTRY_DSN` to enable server-side error reporting. For local development, copy `.env.example` to
+`.env` and set the DSN there; `.env` is ignored by Git. Deployments should set environment variables
+directly. The app captures unhandled route errors with status 500 or higher in the `demo` environment.
+Request bodies, query strings, headers and user details are removed before events are sent, and patient
+names, email addresses, phone numbers and birth dates are scrubbed. Without `SENTRY_DSN`, Sentry remains
+disabled. Run `npm run sentry:test` to send a synthetic test error.
+
 ## Time model
 
 - Each clinic has an IANA timezone: `America/Chicago`, `America/Los_Angeles`, `America/New_York`.

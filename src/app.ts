@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import * as Sentry from "@sentry/node";
 import express, { type Express } from "express";
 import type { Db } from "./db/index";
 import type { AppDeps } from "./deps";
@@ -61,6 +62,7 @@ export function createApp(options: CreateAppOptions): { app: Express; deps: AppD
   app.use("/visits", visitsRouter(deps));
   app.use("/metrics", metricsRouter(deps));
 
+  if (Sentry.isInitialized()) Sentry.setupExpressErrorHandler(app);
   app.use(notFoundHandler);
   app.use(errorHandler(logger));
 

@@ -21,7 +21,9 @@ export function errorHandler(log: Logger): ErrorRequestHandler {
   return (err, req, res, _next) => {
     const requestId = res.locals.requestId as string | undefined;
     if (err instanceof HttpError) {
-      if (err.status >= 500) log.error("request failed", { requestId, code: err.code, err });
+      if (err.status >= 500) {
+        log.error("request failed", { requestId, code: err.code, err });
+      }
       res.status(err.status).json({
         error: { code: err.code, message: err.message, details: err.details, requestId },
       });
