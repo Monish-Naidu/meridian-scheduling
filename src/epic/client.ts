@@ -3,6 +3,7 @@ import { allergiesFor, FHIR_LOCATIONS, FHIR_PATIENTS, FHIR_PRACTITIONERS, medica
 import { EpicMetrics } from "./metrics";
 import {
   type EpicCallContext,
+  type EpicCallTag,
   type EpicResource,
   type FhirBundle,
   type FhirResource,
@@ -59,6 +60,10 @@ export class EpicClient {
   }
 
   searchAllergyIntolerance(patientId: string, ctx: EpicCallContext = {}): Promise<FhirBundle> {
+    return this.call("AllergyIntolerance", ctx, () => bundle(allergiesFor(patientId)), "fhir");
+  }
+
+  getPrivateAllergies(patientId: string, ctx: EpicCallContext = {}): Promise<FhirBundle> {
     return this.call("AllergyIntolerance", ctx, () => bundle(allergiesFor(patientId)));
   }
 
@@ -72,8 +77,12 @@ export class EpicClient {
     return found;
   }
 
-  private async call<T>(resource: EpicResource, ctx: EpicCallContext, handler: () => T): Promise<T> {
-    const tag = RESOURCE_TAGS[resource];
+  private async call<T>(
+    resource: EpicResource,
+    ctx: EpicCallContext,
+    handler: () => T,
+    tag: EpicCallTag = RESOURCE_TAGS[resource],
+  ): Promise<T> {
     const started = Date.now();
     this.metrics.record({ resource, tag, visitId: ctx.visitId, at: new Date(started).toISOString() });
     await sleep(this.latencyMs);

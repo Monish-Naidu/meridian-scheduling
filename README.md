@@ -88,17 +88,18 @@ Soft-cancels the appointment (`status: "cancelled"`), which frees its slot. Retu
 409 if the appointment is already cancelled.
 
 ### `GET /visits/:id/context`
-A visit is an appointment. This endpoint fetches pre-visit context from Epic in parallel: Patient,
-Practitioner, Location, AllergyIntolerance and MedicationRequest. Each call is attributed to the visit.
+A visit is an appointment. This endpoint gathers a patient profile, contact details, the clinic care team,
+location, allergies and medications. The response retains the visit's primary practitioner alongside the
+care team. Each Epic call is attributed to the visit.
 
 ### `GET /metrics/epic`
 ```json
 {
-  "totalCalls": 5,
-  "byResource": { "Patient": 1, "Practitioner": 1, "Location": 1, "AllergyIntolerance": 1, "MedicationRequest": 1 },
-  "byTag": { "fhir": 3, "private": 2 },
-  "byVisit": { "1": 5 },
-  "averageCallsPerVisit": 5,
+  "totalCalls": 8,
+  "byResource": { "Patient": 3, "Practitioner": 2, "Location": 1, "AllergyIntolerance": 1, "MedicationRequest": 1 },
+  "byTag": { "fhir": 6, "private": 2 },
+  "byVisit": { "1": 8 },
+  "averageCallsPerVisit": 8,
   "resourceTags": { "Patient": "fhir", "...": "..." },
   "pricePerPrivateCallUsd": 0.04,
   "meteredCostUsd": 0.08
@@ -116,6 +117,8 @@ Liveness check.
 - Every call is counted by resource type, including calls that fail.
 - Each resource is tagged in `RESOURCE_TAGS` (`src/epic/types.ts`). `fhir` calls are free. `private` calls
   are metered at a fictional $0.04 each. By default AllergyIntolerance and MedicationRequest are `private`.
+- Allergy resources are available through `searchAllergyIntolerance` (`fhir`) and
+  `getPrivateAllergies` (`private`). Visit context uses `getPrivateAllergies`.
 - Metrics live in memory and reset when the process restarts.
 
 ## Logging

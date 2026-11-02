@@ -1,9 +1,39 @@
 import type { Db } from "../db/index";
-import { getAppointment, getClinic, getPatient, getProvider } from "../db/repo";
+import { getAppointment, getClinic, getPatient, getProvider, listProvidersByClinic } from "../db/repo";
 import { EpicNotFoundError, type EpicClient } from "../epic/client";
+import type { EpicCallContext, FhirResource } from "../epic/types";
 import { HttpError } from "../errors";
 
-/** Gathers the Epic data a provider needs before a visit. Calls run in parallel. */
+async function loadPatientProfile(epic: EpicClient, patientId: string, ctx: EpicCallContext) {
+  return epic.getPatient(patientId, ctx);
+}
+
+async function loadContactDetails(epic: EpicClient, patientId: string, ctx: EpicCallContext) {
+  const patient = await epic.getPatient(patientId, ctx);
+  return { patientReference: `Patient/${patient.id}`, telecom: patient.telecom };
+}
+
+async function loadClinicalSummary(epic: EpicClient, patientId: string, ctx: EpicCallContext) {
+  const patient = await epic.getPatient(patientId, ctx);
+  const [allergies, medications] = await Promise.all([
+    epic.getPrivateAllergies(patient.id, ctx),
+    epic.searchMedicationRequest(patient.id, ctx),
+  ]);
+  return {
+    allergies: allergies.entry.map((e) => e.resource),
+    medications: medications.entry.map((e) => e.resource),
+  };
+}
+
+async function loadCareTeam(db: Db, epic: EpicClient, clinicId: number, ctx: EpicCallContext) {
+  const careTeam: FhirResource[] = [];
+  for (const provider of listProvidersByClinic(db, clinicId)) {
+    careTeam.push(await epic.getPractitioner(provider.epicPractitionerId, ctx));
+  }
+  return careTeam;
+}
+
+/** Gathers the Epic data a provider needs before a visit. */
 export async function getVisitContext(db: Db, epic: EpicClient, visitId: number) {
   const appointment = getAppointment(db, visitId);
   if (!appointment) throw new HttpError(404, "VISIT_NOT_FOUND", `Visit ${visitId} not found`);
@@ -17,12 +47,12 @@ export async function getVisitContext(db: Db, epic: EpicClient, visitId: number)
   const ctx = { visitId };
   const started = Date.now();
   try {
-    const [fhirPatient, practitioner, location, allergies, medications] = await Promise.all([
-      epic.getPatient(patient.epicPatientId, ctx),
-      epic.getPractitioner(provider.epicPractitionerId, ctx),
+    const [fhirPatient, contactDetails, clinicalSummary, careTeam, location] = await Promise.all([
+      loadPatientProfile(epic, patient.epicPatientId, ctx),
+      loadContactDetails(epic, patient.epicPatientId, ctx),
+      loadClinicalSummary(epic, patient.epicPatientId, ctx),
+      loadCareTeam(db, epic, clinic.id, ctx),
       epic.getLocation(clinic.epicLocationId, ctx),
-      epic.searchAllergyIntolerance(patient.epicPatientId, ctx),
-      epic.searchMedicationRequest(patient.epicPatientId, ctx),
     ]);
     return {
       visit: {
@@ -34,11 +64,12 @@ export async function getVisitContext(db: Db, epic: EpicClient, visitId: number)
         timezone: clinic.timezone,
       },
       patient: fhirPatient,
-      practitioner,
+      contactDetails,
+      practitioner: careTeam.find((member) => member.id === provider.epicPractitionerId),
+      careTeam,
       location,
-      allergies: allergies.entry.map((e) => e.resource),
-      medications: medications.entry.map((e) => e.resource),
-      epic: { calls: 5, durationMs: Date.now() - started },
+      ...clinicalSummary,
+      epic: { calls: 6 + careTeam.length, durationMs: Date.now() - started },
     };
   } catch (err) {
     if (err instanceof EpicNotFoundError) {

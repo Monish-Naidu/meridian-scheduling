@@ -12,7 +12,7 @@ describe("EpicClient", () => {
     await expect(epic.getPatient("ePAT-missing")).rejects.toBeInstanceOf(EpicNotFoundError);
     await epic.searchMedicationRequest("ePAT-5005", { visitId: 7 });
     await epic.searchMedicationRequest("ePAT-5005", { visitId: 7 });
-    await epic.searchAllergyIntolerance("ePAT-5005", { visitId: 8 });
+    await epic.getPrivateAllergies("ePAT-5005", { visitId: 8 });
 
     const snap = epic.metrics.snapshot();
     expect(snap.totalCalls).toBe(5);
@@ -20,5 +20,19 @@ describe("EpicClient", () => {
     expect(snap.byVisit).toEqual({ "7": 2, "8": 1 });
     expect(snap.averageCallsPerVisit).toBe(1.5);
     expect(snap.meteredCostUsd).toBe(0.12);
+  });
+
+  it("returns the same allergy resources through the FHIR and private APIs", async () => {
+    const epic = new EpicClient({ logger: createLogger({ level: "silent" }), latencyMs: 0 });
+    const fhir = await epic.searchAllergyIntolerance("ePAT-5003", { visitId: 1 });
+    const privateAllergies = await epic.getPrivateAllergies("ePAT-5003", { visitId: 1 });
+    expect(privateAllergies).toEqual(fhir);
+    expect(fhir.entry).toHaveLength(2);
+    expect(epic.metrics.snapshot()).toMatchObject({
+      byResource: { AllergyIntolerance: 2 },
+      byTag: { fhir: 1, private: 1 },
+      byVisit: { "1": 2 },
+      meteredCostUsd: 0.04,
+    });
   });
 });

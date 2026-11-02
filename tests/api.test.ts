@@ -1,5 +1,5 @@
 import request from "supertest";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { makeTestApp, MONDAY } from "./helpers";
 
 // Provider 1 works 08:00-16:00 America/Chicago (UTC-6 in January).
@@ -131,7 +131,7 @@ describe("DELETE /appointments/:id", () => {
 });
 
 describe("visit context and Epic metrics", () => {
-  it("makes five tagged Epic calls per visit and prices the private ones", async () => {
+  it("enriches visit context with contact details, care team, and clinical resources", async () => {
     const booked = await book({ providerId: 1, patientId: 3, start: NINE_AM_CHICAGO });
     const visitId = booked.body.appointment.id;
 
@@ -142,15 +142,65 @@ describe("visit context and Epic metrics", () => {
     expect(context.body.location.id).toBe("eLOC-CHI-001");
     expect(context.body.allergies).toHaveLength(2);
     expect(context.body.medications).toHaveLength(1);
+    expect(context.body.contactDetails).toMatchObject({
+      patientReference: "Patient/ePAT-5003",
+      telecom: context.body.patient.telecom,
+    });
+    expect(context.body.careTeam.map((member: { id: string }) => member.id)).toEqual([
+      "ePRAC-1001", "ePRAC-1002",
+    ]);
+    expect(context.body.epic.calls).toBe(8);
 
     const metrics = await request(ctx.app).get("/metrics/epic");
     expect(metrics.body).toMatchObject({
-      totalCalls: 5,
-      byResource: { Patient: 1, Practitioner: 1, Location: 1, AllergyIntolerance: 1, MedicationRequest: 1 },
-      byTag: { fhir: 3, private: 2 },
-      byVisit: { [String(visitId)]: 5 },
-      averageCallsPerVisit: 5,
+      totalCalls: 8,
+      byResource: { Patient: 3, Practitioner: 2, Location: 1, AllergyIntolerance: 1, MedicationRequest: 1 },
+      byTag: { fhir: 6, private: 2 },
+      byVisit: { [String(visitId)]: 8 },
+      averageCallsPerVisit: 8,
       meteredCostUsd: 0.08,
+    });
+  });
+
+  it("loads each care team member in order and refreshes context on each request", async () => {
+    const booked = await book({ providerId: 2, patientId: 3, start: "2030-01-07T16:00:00.000Z" });
+    expect(booked.status).toBe(201);
+    const visitId = booked.body.appointment.id;
+    const original = ctx.epic.getPractitioner.bind(ctx.epic);
+    let active = 0;
+    let maxActive = 0;
+    const practitioner = vi.spyOn(ctx.epic, "getPractitioner").mockImplementation(async (id, callCtx) => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      try {
+        return await original(id, callCtx);
+      } finally {
+        active -= 1;
+      }
+    });
+    const patient = vi.spyOn(ctx.epic, "getPatient");
+    const location = vi.spyOn(ctx.epic, "getLocation");
+    const privateAllergies = vi.spyOn(ctx.epic, "getPrivateAllergies");
+    const fhirAllergies = vi.spyOn(ctx.epic, "searchAllergyIntolerance");
+
+    for (let i = 0; i < 2; i += 1) {
+      const response = await request(ctx.app).get(`/visits/${visitId}/context`);
+      expect(response.status).toBe(200);
+      expect(response.body.practitioner.id).toBe("ePRAC-1002");
+    }
+    expect(maxActive).toBe(1);
+    expect(practitioner.mock.calls.map(([id]) => id)).toEqual([
+      "ePRAC-1001", "ePRAC-1002", "ePRAC-1001", "ePRAC-1002",
+    ]);
+    expect(patient).toHaveBeenCalledTimes(6);
+    for (const call of patient.mock.calls) expect(call).toEqual(["ePAT-5003", { visitId }]);
+    expect(location).toHaveBeenCalledTimes(2);
+    expect(privateAllergies).toHaveBeenCalledTimes(2);
+    expect(fhirAllergies).not.toHaveBeenCalled();
+    expect(ctx.epic.metrics.snapshot()).toMatchObject({
+      totalCalls: 16,
+      byVisit: { [String(visitId)]: 16 },
+      meteredCostUsd: 0.16,
     });
   });
 
