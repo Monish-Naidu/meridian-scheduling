@@ -1,0 +1,21 @@
+# Partial questionnaire answers for /install-qa. Safe to delete.
+completed_categories:
+  - default_target
+  - personas
+  - critical_flows
+  - external_services
+  - cleanup
+  - imagemagick
+  - ci_integration
+  - failure_learning
+answers:
+  default_target: local (npm start from the branch, throwaway DB_PATH)
+  personas: [api_client] # no authentication in the app
+  critical_flows: confirmed as detected
+  external_services: none (Epic is an in-process mock; Sentry off without SENTRY_DSN)
+  cleanup: reset-db (delete the temporary QA database directory)
+  imagemagick: false # not installed and not needed for API-only QA
+  ci_integration: github_actions_informational
+  video_evidence: false
+  droid_control_compose: false
+  failure_learning: suggest_in_report

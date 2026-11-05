@@ -1,0 +1,99 @@
+name: QA
+
+# Informational only: this check does not block merges. The job succeeds even when
+# QA reports failures; read the QA report comment on the PR for results.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+concurrency:
+  group: qa-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qa:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install droid CLI
+        run: |
+          curl -fsSL https://app.factory.ai/cli | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.factory/bin" >> "$GITHUB_PATH"
+
+      - name: Fetch diff base
+        env:
+          BASE_REF: ${{ github.base_ref || github.event.repository.default_branch }}
+        run: git fetch origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+
+      - name: Run QA
+        id: qa
+        continue-on-error: true
+        timeout-minutes: 18
+        env:
+          FACTORY_API_KEY: ${{ secrets.FACTORY_API_KEY }}
+          CI: 'true'
+          RUN_ID: ${{ github.run_id }}
+          BASE_REF: ${{ github.base_ref || github.event.repository.default_branch }}
+        run: |
+          set -o pipefail
+          mkdir -p qa-results
+          droid exec --auto high "You are running in a non-interactive CI environment. There is NO human available. Do NOT use AskUser, do NOT wait for confirmations, do NOT pause for input. Run the qa skill. The diff base is origin/${BASE_REF}. Write the final report to qa-results/report.md" 2>&1 | tee qa-output.txt
+
+      - name: Upload QA artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-results-${{ github.run_id }}
+          path: qa-results/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Post QA report as PR comment
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo '<!-- qa-report -->'
+            if [ -s qa-results/report.md ]; then
+              grep -q '^## QA Report' qa-results/report.md || echo '## QA Report'
+              cat qa-results/report.md
+            else
+              echo '## QA Report'
+              echo
+              echo ':no_entry: The QA run produced no report. Check the workflow run log.'
+            fi
+            printf '\n\n---\n\n_Informational check, does not block merge._ [Workflow run and artifacts](%s)\n' "$RUN_URL"
+          } > comment.md
+          COMMENT_ID=$(gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments" \
+            --jq '.[] | select(.body | startswith("<!-- qa-report -->")) | .id' | head -n 1)
+          if [ -n "$COMMENT_ID" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$COMMENT_ID" -F body=@comment.md > /dev/null
+          else
+            gh api -X POST "repos/$REPO/issues/$PR_NUMBER/comments" -F body=@comment.md > /dev/null
+          fi
