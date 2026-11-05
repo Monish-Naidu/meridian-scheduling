@@ -1,0 +1,72 @@
+project: meridian-scheduling
+platform: github
+imagemagick: false
+video_evidence: false # API-only project; there are no interactive flows to record
+droid_control:
+  plugin: droid-control@factory-plugins
+  compose: false # single runtime toggle for optional edited MP4 output (only used with video_evidence)
+
+environments:
+  local:
+    url: http://localhost:3100
+    description: >
+      The API started from the checked-out branch with `npm start`, using a throwaway
+      SQLite file under $QA_DIR (DB_PATH). This is the only supported QA target.
+    restrictions:
+      - Never point DB_PATH at data/meridian.db or any shared or production database.
+      - Never call real Epic endpoints; the Epic client is an in-process mock.
+      - Never set SENTRY_DSN during QA runs.
+
+default_target: local
+
+auth:
+  method: none
+  provider: none
+  notes: The API has no authentication. Every endpoint is public.
+
+personas:
+  - name: api_client
+    description: 'A scheduling front end or integration calling the API over HTTP'
+    credentials_source: none
+    test_focus:
+      - clinic and provider listing
+      - slot availability in clinic-local time
+      - booking, overlap rejection, cancel and rebook
+      - visit context and Epic call metering
+    cannot_do:
+      - book overlapping appointments for the same provider
+      - book outside provider working hours or in the past
+      - cancel an appointment twice
+
+apps:
+  api:
+    path_patterns:
+      - 'src/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+    skill: qa-api
+    test_tool: curl
+    build_command: 'npm ci'
+    start_command: 'npm start'
+    health_url: http://localhost:3100/health
+
+feature_flags:
+  provider: none
+
+integrations:
+  epic:
+    provider: mock (src/epic/)
+    notes: In-process mock with 150 ms latency per call. Metrics reset when the server restarts.
+  error_reporting:
+    provider: Sentry
+    notes: Disabled unless SENTRY_DSN is set. Leave it unset during QA.
+
+cleanup:
+  auto_cleanup: true
+  strategy: reset-db
+  instructions: >
+    Stop the QA server and delete $QA_DIR (the temporary SQLite file and its -wal/-shm files).
+    Each run starts from a freshly seeded database, so no other cleanup is needed.
+
+failure_learning: suggest_in_report
