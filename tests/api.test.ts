@@ -102,6 +102,19 @@ describe("overlap rejection", () => {
     expect((await book({ providerId: 1, patientId: 3, start: "2030-01-07T14:30:00.000Z" })).status).toBe(201);
   });
 
+  it("does not persist a second booking when rejecting an overlap", async () => {
+    expect((await book({ providerId: 1, patientId: 2, start: NINE_AM_CHICAGO })).status).toBe(409);
+    const rows = ctx.db
+      .prepare("SELECT COUNT(*) AS n FROM appointments WHERE provider_id = 1 AND status = 'booked'")
+      .get() as { n: number };
+    expect(rows.n).toBe(1);
+  });
+
+  it("compares UTC times, not clinic-local times, when checking overlaps", async () => {
+    // 15:00 Chicago is 21:00Z; its local wall time matches the existing 15:00Z booking.
+    expect((await book({ providerId: 1, patientId: 2, start: "2030-01-07T21:00:00.000Z" })).status).toBe(201);
+  });
+
   it("allows a different provider at the same time", async () => {
     expect((await book({ providerId: 2, patientId: 2, start: "2030-01-07T16:00:00.000Z" })).status).toBe(201);
   });

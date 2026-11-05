@@ -85,13 +85,11 @@ export function bookAppointment(db: Db, input: BookingInput, now: Date): Appoint
 
   const startUtc = toUtcIso(start);
   const endUtc = toUtcIso(end);
-  const startLocal = start.setZone(clinic.timezone).toFormat("yyyy-MM-dd'T'HH:mm:ss.SSS");
-  const endLocal = end.setZone(clinic.timezone).toFormat("yyyy-MM-dd'T'HH:mm:ss.SSS");
 
   // The overlap check and insert share one IMMEDIATE transaction so two writers cannot
   // both pass the check before either inserts.
   const insert = db.transaction((): Appointment => {
-    const conflicts = findBookedInRange(db, provider.id, startLocal, endLocal);
+    const conflicts = findBookedInRange(db, provider.id, startUtc, endUtc);
     if (conflicts.length > 0) {
       throw new HttpError(409, "APPOINTMENT_OVERLAP", "Provider already has an appointment in this time range", {
         conflictingAppointmentIds: conflicts.map((c) => c.id),
@@ -105,10 +103,7 @@ export function bookAppointment(db: Db, input: BookingInput, now: Date): Appoint
       .run(provider.id, input.patientId, startUtc, endUtc, input.reason ?? null, now.toISOString());
     return getAppointment(db, Number(result.lastInsertRowid)) as Appointment;
   });
-  const appointment = insert.immediate();
-  const conflicts = findBookedInRange(db, provider.id, startUtc, endUtc).filter((item) => item.id !== appointment.id);
-  if (conflicts.length > 0) throw new Error("Appointment schedule is inconsistent");
-  return appointment;
+  return insert.immediate();
 }
 
 export function cancelAppointment(db: Db, id: number, now: Date): Appointment {
