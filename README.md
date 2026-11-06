@@ -34,6 +34,23 @@ On first start the database is created at `data/meridian.db` and seeded with 3 c
 Environment variables: `PORT` (default `3000`), `DB_PATH` (default `data/meridian.db`),
 `LOG_LEVEL` (`debug`, `info`, `warn`, `error`, `silent`; default `info`).
 
+### Dev container
+
+With Docker running and the VS Code **Dev Containers** extension installed, open this repository
+and run **Dev Containers: Reopen in Container**. The container uses Node.js 22 (matching CI) on Debian
+Bookworm, includes the native build tools needed by `better-sqlite3`, and runs as the non-root `node`
+user. Initial setup runs `npm ci` from the lockfile and configures TypeScript and ESLint support.
+
+In the container terminal, run `npm run dev`. Port 3000 is forwarded to the host; check
+`http://localhost:3000/health` once the API is running. Run `npm test`, `npm run typecheck`, and
+`npm run lint` in the same terminal to validate changes.
+
+Dependencies live in a container-specific Docker volume, separate from host `node_modules`, so native
+SQLite binaries built on macOS or Windows are not reused on Linux. Run `npm ci` inside the container
+after changing `package-lock.json`. The workspace, including `data/meridian.db`, remains on the host
+and survives container rebuilds. Container setup does not start the API or wipe/reseed an existing
+database.
+
 ## Sentry
 
 Set `SENTRY_DSN` to enable server-side error reporting. For local development, copy `.env.example` to
